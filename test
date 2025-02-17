@@ -1,0 +1,108 @@
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+
+import org.apache.lucene.analysis.Analyzer;
+import org.apache.lucene.analysis.standard.StandardAnalyzer;
+import org.apache.lucene.document.Document;
+import org.apache.lucene.document.Field;
+import org.apache.lucene.document.TextField;
+import org.apache.lucene.index.DirectoryReader;
+import org.apache.lucene.index.IndexWriter;
+import org.apache.lucene.index.IndexWriterConfig;
+import org.apache.lucene.index.Term;
+import org.apache.lucene.search.BooleanClause;
+import org.apache.lucene.search.BooleanQuery;
+import org.apache.lucene.search.FuzzyQuery;
+import org.apache.lucene.search.IndexSearcher;
+import org.apache.lucene.search.Query;
+import org.apache.lucene.search.ScoreDoc;
+import org.apache.lucene.store.Directory;
+import org.apache.lucene.store.RAMDirectory;
+
+public class LuceneFuzzyMatcher {
+
+    public static void main(String[] args) {
+        // Paths to your text files
+        String file1Path = "file1.txt";
+        String file2Path = "file2.txt";
+
+        try {
+            // Read the files into lists
+            List<String> file1Lines = Files.readAllLines(Path.of(file1Path));
+            List<String> file2Lines = Files.readAllLines(Path.of(file2Path));
+
+            // Initialize Lucene components
+            Analyzer analyzer = new StandardAnalyzer();
+            Directory index = new RAMDirectory();
+            IndexWriterConfig config = new IndexWriterConfig(analyzer);
+            IndexWriter writer = new IndexWriter(index, config);
+
+            // Index each line from file2 as a separate document
+            for (String line : file2Lines) {
+                Document doc = new Document();
+                // Store the field so we can retrieve the original text later
+                doc.add(new TextField("content", line, Field.Store.YES));
+                writer.addDocument(doc);
+            }
+            writer.close();
+
+            // Create an IndexSearcher to query the index
+            DirectoryReader reader = DirectoryReader.open(index);
+            IndexSearcher searcher = new IndexSearcher(reader);
+
+            // Process each line in file1
+            for (String line1 : file1Lines) {
+                System.out.println("Matches for: " + line1);
+
+                // Build a BooleanQuery with fuzzy queries for each token in file1's line
+                BooleanQuery.Builder booleanQuery = new BooleanQuery.Builder();
+                String[] tokens = line1.split("\\s+");
+                for (String token : tokens) {
+                    // Lowercase the token to match our analyzer’s behavior.
+                    // FuzzyQuery uses a default maxEdits of 2 (for terms longer than 2 characters)
+                    FuzzyQuery fuzzyQuery = new FuzzyQuery(new Term("content", token.toLowerCase()));
+                    booleanQuery.add(fuzzyQuery, BooleanClause.Occur.MUST);
+                }
+
+                Query query = booleanQuery.build();
+                // Adjust the number of results returned as needed
+                ScoreDoc[] hits = searcher.search(query, 10).scoreDocs;
+
+                if (hits.length == 0) {
+                    System.out.println("  No matches found.");
+                } else {
+                    for (ScoreDoc hit : hits) {
+                        Document hitDoc = searcher.doc(hit.doc);
+                        System.out.println("  " + hitDoc.get("content") + " (score: " + hit.score + ")");
+                    }
+                }
+                System.out.println();  // Blank line for readability
+            }
+
+            reader.close();
+            index.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+}
+
+<dependencies>
+  <dependency>
+    <groupId>org.apache.lucene</groupId>
+    <artifactId>lucene-core</artifactId>
+    <version>9.6.0</version>
+  </dependency>
+  <dependency>
+    <groupId>org.apache.lucene</groupId>
+    <artifactId>lucene-analyzers-common</artifactId>
+    <version>9.6.0</version>
+  </dependency>
+  <dependency>
+    <groupId>org.apache.lucene</groupId>
+    <artifactId>lucene-queryparser</artifactId>
+    <version>9.6.0</version>
+  </dependency>
+</dependencies>
